@@ -9,6 +9,7 @@ import ResizeControls from './tools/resize';
 import AiBackground from './tools/ai-background';
 import TextControl from './tools/text';
 import AiExtendTool from './tools/ai-extend';
+import AIEditTool from './tools/ai-edit';
 
 interface EditorSidebarProps {
     project: Project;
@@ -18,6 +19,7 @@ interface RenderToolConfigProps {
     activeTool : ToolId,
     project : Project
 }
+
 
 
 
@@ -110,6 +112,8 @@ const renderToolConfig = (activeTool : string | null, project : Project) => {
             return <TextControl />
             case "ai_extender" :
                 return <AiExtendTool project={project} />
+                case "ai_edit" :
+                    return <AIEditTool project={project}/>
     }
 
 }

@@ -177,8 +177,8 @@ import React from 'react'
 
 const Pricing = () => {
     return (
-        <div className="flex flex-col  items-center justify-center min-h-screen">
-            <div className="text-center mb-16">
+        <div className="flex flex-col items-center justify-center min-h-screen py-20 px-6">
+            <div className="text-center mb-16 w-full">
                 <h2 className="text-5xl font-bold text-white pb-6">
                     Simple{' '}
                     <span className="bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
@@ -189,9 +189,10 @@ const Pricing = () => {
                     Start free and upgrade when you need more power. No hidden fees, cancel anytime
                 </p>
             </div>
-            <div className='max-w-4xl'>
-
-                <PricingTable />
+            <div className='w-full max-w-4xl'>
+                <div className="flex justify-center">
+                    <PricingTable />
+                </div>
             </div>
         </div>
     );

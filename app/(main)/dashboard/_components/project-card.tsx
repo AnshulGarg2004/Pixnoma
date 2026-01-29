@@ -29,6 +29,7 @@ export type Project = {
   height: number;
 
   canvasState?: any; 
+  activeTransformation?: string;
 
   createdAt: number;
   updatedAt: number;
@@ -77,7 +78,6 @@ const ProjectCard = ({project, onEdit} : ProjectCardProp) => {
                 src={project.thumbnailUrl}
                 alt='Thumbnail'
                 fill
-                sizes='(max-width: 768px) 100vw, 33vw'
                 className='object-cover'
                 priority={false}
               />

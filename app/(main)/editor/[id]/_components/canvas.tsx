@@ -7,7 +7,6 @@ import { Loader2 } from 'lucide-react';
 import { Canvas, FabricImage } from 'fabric';
 import React, { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner';
-import { on } from 'events';
 
 
 interface CanvasEditorProps {

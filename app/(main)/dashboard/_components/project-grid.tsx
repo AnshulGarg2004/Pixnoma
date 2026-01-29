@@ -6,23 +6,27 @@ interface ProjectGridProps {
     projects: Project[];
 }
 
-const ProjectGrid = (projects: ProjectGridProps) => {
+const ProjectGrid = ({ projects }: ProjectGridProps) => {
     console.log("In project grid");
-    
+
     const router = useRouter();
     console.log("Projects: ", projects);
     console.log("This wll take to card");
-    
-    
+
+
 
     const handleEditProject = (id: string) => {
         router.push(`/editor/${id}`);
     }
 
     return (
-        <div className='grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 w-full'>
-            {projects.projects.map((project) => (
-                <ProjectCard key={project._id} project={project} onEdit={() => handleEditProject(project._id)} />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map((project) => (
+                <ProjectCard
+                    key={project._id}
+                    project={project}
+                    onEdit={() => handleEditProject(project._id)}
+                />
             ))}
         </div>
     )
