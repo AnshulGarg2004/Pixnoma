@@ -66,10 +66,20 @@ export async function POST(req: Request) {
     console.log("Subcsription: ", subscription);
     
     
-    // Extract user ID - Clerk stores it as user_id in subscription events
-    const clerkId = subscription.user_id;
+    // Extract user ID - Clerk may store it in different fields
+    const clerkId =
+      subscription.user_id ??
+      subscription.userId ??
+      subscription.user?.id ??
+      subscription.subscriber_id ??
+      subscription.subscriber?.id ??
+      subscription.customer_id ??
+      subscription.customer?.id ??
+      null;
     if (!clerkId) {
-      console.error("[Webhook] No user_id in subscription event");
+      console.error("[Webhook] No user_id in subscription event", {
+        keys: Object.keys(subscription ?? {}),
+      });
       return new Response("Missing user_id", { status: 400 });
     }
 
