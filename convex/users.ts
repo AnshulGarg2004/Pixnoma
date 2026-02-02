@@ -1,4 +1,5 @@
-import { internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { v } from "convex/values";
 
 export const store = mutation({
   args: {},
@@ -20,10 +21,25 @@ export const store = mutation({
       )
       .unique();
     if (user !== null) {
-      // If we've seen this identity before but the name has changed, patch the value.
-      if (user.name !== identity.name) {
-        await ctx.db.patch(user._id, { name: identity.name });
-      }
+        // Patch user if data has changed (including backfilling clerkId for existing users)
+        const updates: Partial<{
+          name: string;
+          clerkId: string;
+        }> = {};
+      
+        if (user.name !== identity.name) {
+          updates.name = identity.name;
+        }
+      
+        // Backfill clerkId for existing users who don't have it
+        if (!user.clerkId && identity.subject) {
+          updates.clerkId = identity.subject;
+        }
+      
+        if (Object.keys(updates).length > 0) {
+          await ctx.db.patch(user._id, updates);
+        }
+      
       return user._id;
     }
     // If it's a new identity, create a new `User`.
@@ -31,6 +47,7 @@ export const store = mutation({
       name: identity.name ?? "Anonymous",
       email : identity.email ?? "",
       tokenIdentifier: identity.tokenIdentifier,
+      clerkId: identity.subject,
       plan : "free",
       projectUsed : 0,
       exportsThisMonth : 0,
@@ -57,3 +74,42 @@ export const getCurrentUser = query({
         return user;
     }
 })
+
+// Internal mutation called by webhook to update user plan
+export const updateUserPlan = internalMutation({
+  args: {
+    clerkId: v.string(),
+    plan: v.union(v.literal("free"), v.literal("pro")),
+    email: v.optional(v.string()),
+  },
+  handler: async (ctx, { clerkId, plan, email }) => {
+    // Find user by clerkId
+    let user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
+      .unique();
+
+    // Fallback: find by email if clerkId missing on existing users
+    if (!user && email) {
+      user = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .unique();
+    }
+
+    if (!user) {
+      throw new Error(`User not found for clerkId ${clerkId}`);
+    }
+
+    // Update the user's plan and backfill clerkId if needed
+    const updates: { plan: "free" | "pro"; clerkId?: string } = { plan };
+    if (!user.clerkId) {
+      updates.clerkId = clerkId;
+    }
+
+    await ctx.db.patch(user._id, updates);
+
+    console.log(`Updated user ${user.email} to ${plan} plan`);
+    return { success: true, userId: user._id, plan };
+  },
+});

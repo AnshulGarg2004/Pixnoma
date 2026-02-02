@@ -137,7 +137,7 @@ const CanvasEditor = ({ project }: CanvasEditorProps) => {
                     const imageUrl = project.currentImageUrl || project.originalImageUrl;
                     console.log("Loading image from URL: ", imageUrl);
 
-                    const fabricImage = await FabricImage.fromURL(imageUrl, {}, {
+                    const fabricImage = await FabricImage.fromURL(imageUrl, {
                         crossOrigin: 'anonymous'
                     });
 

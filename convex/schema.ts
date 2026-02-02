@@ -6,6 +6,7 @@ export default defineSchema({
         name: v.string(),
         email : v.string(),
         tokenIdentifier: v.string(),
+        clerkId : v.optional(v.string()),
         imageUrl : v.optional(v.string()),
 
         plan : v.union(v.literal("free"), v.literal("pro")),
@@ -15,7 +16,7 @@ export default defineSchema({
         createdAt : v.number(),
         lastActiveAt : v.number(),
 
-    }).index("by_token", ["tokenIdentifier"]).index("by_email", ["email"]).searchIndex("search_name", {searchField : "name"}).searchIndex("search_email", {searchField : "email"}),
+    }).index("by_token", ["tokenIdentifier"]).index("by_email", ["email"]).index("by_clerk_id", ["clerkId"]).searchIndex("search_name", {searchField : "name"}).searchIndex("search_email", {searchField : "email"}),
 
 
     projects : defineTable({

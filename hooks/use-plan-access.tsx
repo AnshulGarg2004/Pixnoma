@@ -1,10 +1,27 @@
 import { useAuth } from "@clerk/nextjs";
+import { useConvexQuery } from "./use-convex-query";
+import { api } from "@/convex/_generated/api";
 import { TruckElectric } from "lucide-react";
 
+interface ConvexUser {
+    _id: string;
+    _creationTime: number;
+    name: string;
+    email: string;
+    tokenIdentifier: string;
+    imageUrl?: string;
+    plan: "free" | "pro";
+    projectUsed: number;
+    exportsThisMonth: number;
+    createdAt: number;
+    lastActiveAt: number;
+}
+
 export function usePlanAccess() {
-    const {has} = useAuth();
+    const { userId } = useAuth();
+    const { data: user } = useConvexQuery(api.users.getCurrentUser, undefined) as { data: ConvexUser | null };
     
-    const isPro = has?.({plan : 'pro'}) || false;
+    const isPro = user?.plan === 'pro' || false;
     const isFree = !isPro;
 
     type ToolId = "resize" | "crop" | "adjust" | "text" | "ai_extender" | "ai_edit" | "background";
@@ -17,9 +34,9 @@ export function usePlanAccess() {
         text : true,
 
         // pro
-        ai_extender : true,
-        ai_edit : true,
-        background : true
+        ai_extender : isPro,
+        ai_edit : isPro,
+        background : isPro
     }
 
     const hasAccess = (toolId : ToolId) => {
@@ -40,5 +57,5 @@ export function usePlanAccess() {
         return currentProjectExport < 20;
     }
 
-    return { userPlan : isPro ? 'pro' : 'free_user', hasAccess, isFree, getRestrictedTools, canCreateProject, canExport, planAccess};
+    return { userPlan : isPro ? 'pro' : 'free', hasAccess, isFree, getRestrictedTools, canCreateProject, canExport, planAccess, isPro};
 }

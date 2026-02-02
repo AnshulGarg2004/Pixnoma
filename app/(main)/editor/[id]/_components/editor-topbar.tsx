@@ -20,6 +20,20 @@ interface TopbarProps {
   project: Project;
 }
 
+interface ConvexUser {
+  _id: string;
+  _creationTime: number;
+  name: string;
+  email: string;
+  tokenIdentifier: string;
+  imageUrl?: string;
+  plan: "free" | "pro";
+  projectUsed: number;
+  exportsThisMonth: number;
+  createdAt: number;
+  lastActiveAt: number;
+}
+
 type ToolsId = "resize" | "crop" | "adjust" | "text" | "background" | "ai_extender" | "ai_edit";
 
 type Tool = {
@@ -121,7 +135,7 @@ const EditorTopbar = ({ project }: TopbarProps) => {
   const [isUndoRedo, setIsUndoRedo] = useState<boolean>(false);
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
-  const { data: user } = useConvexQuery(api.users.getCurrentUser, undefined);
+  const { data: user } = useConvexQuery(api.users.getCurrentUser, undefined) as { data: ConvexUser | null };
 
   const MAX_HISTORY = 20;
 
@@ -228,7 +242,7 @@ const EditorTopbar = ({ project }: TopbarProps) => {
       return;
     }
 
-    if(!canExport(user?.exportsThisMonth)) {
+    if(!canExport(user?.exportsThisMonth ?? 0)) {
       setRestrictedTools("exports");
       setUpgradedModel(true);
       toast.error("Export limit reached. Please upgrade your plan.");
@@ -248,11 +262,28 @@ const EditorTopbar = ({ project }: TopbarProps) => {
       })
       canvasEditor.requestRenderAll();
   
-      const dataUrl = canvasEditor.toDataURL({
-        format : config.format.toLowerCase() as 'png' | 'jpeg' | 'webp',
-        quality : config.quality, 
-        multiplier : 1
-      });
+      let dataUrl: string;
+      try {
+        dataUrl = canvasEditor.toDataURL({
+          format : config.format.toLowerCase() as 'png' | 'jpeg' | 'webp',
+          quality : config.quality, 
+          multiplier : 1
+        });
+      } catch (canvasError: any) {
+        // Handle tainted canvas error by using a fallback export method
+        if (canvasError.message && canvasError.message.includes('Tainted')) {
+          console.warn("Canvas is tainted due to CORS restrictions. Attempting fallback export...");
+          const canvas = canvasEditor.getElement();
+          try {
+            dataUrl = canvas.toDataURL(`image/${config.format.toLowerCase() === 'jpg' ? 'jpeg' : config.format.toLowerCase()}`, config.quality);
+          } catch (fallbackError) {
+            toast.error("Cannot export due to cross-origin image restrictions. Please use images from the same domain.");
+            throw fallbackError;
+          }
+        } else {
+          throw canvasError;
+        }
+      }
   
       canvasEditor.setZoom(currentZoom);
       canvasEditor.setViewportTransform(currentViewPortTransform);
@@ -445,7 +476,7 @@ const saveToUndoStack = () => {
                     <DropdownMenuSeparator className='bg-slate-700' />
                     <div className='px-3 py-2 text-xs text-white/50'>
                       Free Plan : {user?.exportsThisMonth}/20 exports this month
-                      {(user?.exportsThisMonth) >= 20 && (
+                      {(user?.exportsThisMonth ?? 0) >= 20 && (
                         <div className='text-amber-400 mt-1'>Upgrade to pro for unlimited Exports.</div>
                       )}
                     </div>
@@ -462,10 +493,13 @@ const saveToUndoStack = () => {
               const Icon = tool.icon;
               const isActive = activeTool === tool.id;
               const hasToolAccess = hasAccess(tool.id);
+              console.log("tool access: ", hasToolAccess);
+              
               return (
                 <Button className={`gap-2 relative 
                         ${isActive ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-white hover:bg-gray-100 hover:text-gray-300'}
                         ${!hasToolAccess ? 'opacity-60' : ''}`}
+                        disabled={!hasToolAccess}
                   key={tool.id} variant={isActive ? 'default' : 'ghost'} size={'sm'} onClick={() => handleToolChange(tool.id)} >
                   <Icon className='h-4 w-4' />  {tool.label}
                   {tool.proOnly && !hasToolAccess && (
