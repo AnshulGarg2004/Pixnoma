@@ -78,18 +78,21 @@ export const getCurrentUser = query({
 // Internal mutation called by webhook to update user plan
 export const updateUserPlan = internalMutation({
   args: {
-    clerkId: v.string(),
+    clerkId: v.optional(v.string()),
     plan: v.union(v.literal("free"), v.literal("pro")),
     email: v.optional(v.string()),
   },
   handler: async (ctx, { clerkId, plan, email }) => {
-    // Find user by clerkId
-    let user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
-      .unique();
+    // Find user by clerkId if provided
+    let user = null;
+    if (clerkId) {
+      user = await ctx.db
+        .query("users")
+        .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
+        .unique();
+    }
 
-    // Fallback: find by email if clerkId missing on existing users
+    // Fallback: find by email
     if (!user && email) {
       user = await ctx.db
         .query("users")
@@ -98,12 +101,12 @@ export const updateUserPlan = internalMutation({
     }
 
     if (!user) {
-      throw new Error(`User not found for clerkId ${clerkId}`);
+      throw new Error(`User not found for clerkId ${clerkId ?? "(none)"}`);
     }
 
     // Update the user's plan and backfill clerkId if needed
     const updates: { plan: "free" | "pro"; clerkId?: string } = { plan };
-    if (!user.clerkId) {
+    if (!user.clerkId && clerkId) {
       updates.clerkId = clerkId;
     }
 

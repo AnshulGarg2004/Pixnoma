@@ -76,11 +76,18 @@ export async function POST(req: Request) {
       subscription.customer_id ??
       subscription.customer?.id ??
       null;
-    if (!clerkId) {
-      console.error("[Webhook] No user_id in subscription event", {
+    const fallbackEmail =
+      subscription.user?.email ??
+      subscription.user_email ??
+      subscription.customer_email ??
+      subscription.email ??
+      subscription.subscriber?.email ??
+      null;
+    if (!clerkId && !fallbackEmail) {
+      console.error("[Webhook] No user identifier in subscription event", {
         keys: Object.keys(subscription ?? {}),
       });
-      return new Response("Missing user_id", { status: 400 });
+      return new Response("Missing user identifier", { status: 400 });
     }
 
     // Determine the plan based on subscription status
@@ -98,17 +105,19 @@ export async function POST(req: Request) {
     }
 
     // Fetch user email from Clerk for fallback matching in Convex
-    let email: string | null = null;
-    try {
-      const client = await clerkClient();
-      const clerkUser = await client.users.getUser(clerkId);
-      const primaryEmailId = clerkUser.primaryEmailAddressId;
-      const primaryEmail = clerkUser.emailAddresses.find(
-        (addr: { id: string; emailAddress: string }) => addr.id === primaryEmailId,
-      );
-      email = primaryEmail?.emailAddress ?? null;
-    } catch (error) {
-      console.error("[Webhook] Failed to fetch Clerk user email:", error);
+    let email: string | null = fallbackEmail;
+    if (!email && clerkId) {
+      try {
+        const client = await clerkClient();
+        const clerkUser = await client.users.getUser(clerkId);
+        const primaryEmailId = clerkUser.primaryEmailAddressId;
+        const primaryEmail = clerkUser.emailAddresses.find(
+          (addr: { id: string; emailAddress: string }) => addr.id === primaryEmailId,
+        );
+        email = primaryEmail?.emailAddress ?? null;
+      } catch (error) {
+        console.error("[Webhook] Failed to fetch Clerk user email:", error);
+      }
     }
 
     // Call Convex HTTP action to update user plan

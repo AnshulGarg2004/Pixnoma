@@ -20,19 +20,19 @@ http.route({
     // Parse the request body
     const body = await request.json();
     const { clerkId, plan, email } = body as {
-      clerkId: string;
+      clerkId?: string | null;
       plan: "free" | "pro";
       email?: string | null;
     };
 
-    if (!clerkId || !plan) {
-      return new Response("Missing clerkId or plan", { status: 400 });
+    if (!plan || (!clerkId && !email)) {
+      return new Response("Missing plan or user identifier", { status: 400 });
     }
 
     // Call the internal mutation to update the user
     try {
       await ctx.runMutation(internal.users.updateUserPlan, {
-        clerkId,
+        clerkId: clerkId ?? undefined,
         plan,
         email: email ?? undefined,
       });
