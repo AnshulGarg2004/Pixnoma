@@ -1,22 +1,22 @@
 import { Webhook } from "svix";
 import { headers } from "next/headers";
-import { clerkClient } from "@clerk/nextjs/server";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
 
-// Convex HTTP endpoint URL - update this after deployment
-const CONVEX_HTTP_URL = process.env.NEXT_PUBLIC_CONVEX_URL?.replace(
-  ".convex.cloud",
-  ".convex.site"
-);
+// Direct Convex client - no need for HTTP endpoint
+const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 export async function POST(req: Request) {
-  // Get Clerk webhook secret from environment
+  console.log("[Webhook] Received request");
+
+  // Get Clerk webhook secret
   const CLERK_WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
   if (!CLERK_WEBHOOK_SECRET) {
     console.error("[Webhook] Missing CLERK_WEBHOOK_SECRET");
     return new Response("Server configuration error", { status: 500 });
   }
 
-  // Get svix headers for verification
+  // Get svix headers
   const headerPayload = await headers();
   const svix_id = headerPayload.get("svix-id");
   const svix_timestamp = headerPayload.get("svix-timestamp");
@@ -27,151 +27,77 @@ export async function POST(req: Request) {
     return new Response("Missing svix headers", { status: 400 });
   }
 
-  // Get and verify the webhook payload
+  // Verify webhook
   const payload = await req.json();
   const body = JSON.stringify(payload);
-
   const wh = new Webhook(CLERK_WEBHOOK_SECRET);
-  
-  // Clerk webhook event type (using any to support billing events not in SDK types)
-  let evt: { type: string; data: Record<string, any> };
 
+  let evt: { type: string; data: Record<string, unknown> };
   try {
     evt = wh.verify(body, {
       "svix-id": svix_id,
       "svix-timestamp": svix_timestamp,
       "svix-signature": svix_signature,
-    }) as { type: string; data: Record<string, any> };
+    }) as { type: string; data: Record<string, unknown> };
   } catch (err) {
-    console.error("[Webhook] Signature verification failed:", err);
+    console.error("[Webhook] Verification failed:", err);
     return new Response("Invalid signature", { status: 400 });
   }
 
-  // Extract event type and data
   const eventType = evt.type;
-  console.log(`[Webhook] Received event: ${eventType}`);
+  const data = evt.data;
+  console.log(`[Webhook] Event: ${eventType}`);
+  console.log(`[Webhook] Data keys: ${Object.keys(data)}`);
 
-  if (!CONVEX_HTTP_URL) {
-    console.error("[Webhook] Missing NEXT_PUBLIC_CONVEX_URL");
-    return new Response("Server configuration error", { status: 500 });
-  }
+  // Handle subscription events
+  if (eventType.startsWith("subscription.")) {
+    console.log("[Webhook] Full payload:", JSON.stringify(data, null, 2));
 
-  // Handle subscription events from Clerk Billing
-  if (
-    eventType === "subscription.created" ||
-    eventType === "subscription.updated" ||
-    eventType === "subscription.deleted"
-  ) {
-    const subscription = evt.data;
-    console.log("Subcsription: ", subscription);
-    
-    
-    // Extract user ID - Clerk may store it in different fields
-    const clerkId =
-      subscription.user_id ??
-      subscription.userId ??
-      subscription.user?.id ??
-      subscription.subscriber_id ??
-      subscription.subscriber?.id ??
-      subscription.customer_id ??
-      subscription.customer?.id ??
+    // Try to get user identifier from various fields
+    const clerkUserId = 
+      (data.user_id as string) ||
+      (data.subscriber_user_id as string) ||
+      ((data.subscriber as Record<string, unknown>)?.user_id as string) ||
+      ((data.user as Record<string, unknown>)?.id as string) ||
       null;
-    const fallbackEmail =
-      subscription.user?.email ??
-      subscription.user_email ??
-      subscription.customer_email ??
-      subscription.email ??
-      subscription.subscriber?.email ??
+
+    // Try to get email
+    const email =
+      ((data.subscriber as Record<string, unknown>)?.email_address as string) ||
+      ((data.user as Record<string, unknown>)?.email as string) ||
+      (data.email as string) ||
       null;
-    if (!clerkId && !fallbackEmail) {
-      console.error("[Webhook] No user identifier in subscription event", {
-        keys: Object.keys(subscription ?? {}),
-      });
-      return new Response("Missing user identifier", { status: 400 });
+
+    console.log(`[Webhook] Found clerkUserId: ${clerkUserId}, email: ${email}`);
+
+    if (!clerkUserId && !email) {
+      console.error("[Webhook] No user identifier found");
+      // Return 200 to prevent Clerk from retrying
+      return new Response("No user identifier, skipping", { status: 200 });
     }
 
-    // Determine the plan based on subscription status
-    let plan: "free" | "pro" = "free";
-    const status = subscription.status as string | undefined;
-    const proStatuses = new Set(["active", "trialing"]);
-    if (eventType === "subscription.created" || eventType === "subscription.updated") {
-      // Treat active or trialing as Pro; anything else downgrades to free
-      plan = status && proStatuses.has(status) ? "pro" : "free";
-      console.log(`[Webhook] Subscription ${eventType}: status=${status}, plan=${plan}`);
-    } else if (eventType === "subscription.deleted") {
-      // Subscription cancelled/deleted = downgrade to free
-      plan = "free";
-      console.log(`[Webhook] Subscription deleted, downgrading to free`);
-    }
+    // Determine plan from status
+    const status = data.status as string | undefined;
+    const plan: "free" | "pro" = 
+      status === "active" || status === "trialing" ? "pro" : "free";
 
-    // Fetch user email from Clerk for fallback matching in Convex
-    let email: string | null = fallbackEmail;
-    if (!email && clerkId) {
-      try {
-        const client = await clerkClient();
-        const clerkUser = await client.users.getUser(clerkId);
-        const primaryEmailId = clerkUser.primaryEmailAddressId;
-        const primaryEmail = clerkUser.emailAddresses.find(
-          (addr: { id: string; emailAddress: string }) => addr.id === primaryEmailId,
-        );
-        email = primaryEmail?.emailAddress ?? null;
-      } catch (error) {
-        console.error("[Webhook] Failed to fetch Clerk user email:", error);
-      }
-    }
+    console.log(`[Webhook] Status: ${status}, Plan: ${plan}`);
 
-    // Call Convex HTTP action to update user plan
+    // Update user in Convex
     try {
-      const convexResponse = await fetch(`${CONVEX_HTTP_URL}/clerk-webhook`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-webhook-secret": process.env.CONVEX_WEBHOOK_SECRET || "",
-        },
-        body: JSON.stringify({ clerkId, plan, email }),
+      const result = await convex.mutation(api.users.updatePlanByIdentifier, {
+        clerkUserId: clerkUserId || undefined,
+        email: email || undefined,
+        plan,
       });
-
-      const result = await convexResponse.json();
-      console.log(`[Webhook] Convex update result:`, result);
-
-      if (!convexResponse.ok) {
-        console.error("[Webhook] Convex update failed:", result);
-        return new Response("Failed to update Convex", { status: 500 });
-      }
+      console.log("[Webhook] Convex result:", result);
+      return new Response(JSON.stringify({ success: true, result }), { status: 200 });
     } catch (error) {
-      console.error("[Webhook] Error calling Convex:", error);
-      return new Response("Failed to call Convex", { status: 500 });
+      console.error("[Webhook] Convex error:", error);
+      // Return 200 anyway to prevent infinite retries
+      return new Response(JSON.stringify({ success: false, error: String(error) }), { status: 200 });
     }
   }
 
-  // Handle user.updated event (for metadata-based plan changes)
-  if (eventType === "user.updated") {
-    const { id, public_metadata } = evt.data;
-    const metadataPlan = public_metadata?.plan as string | undefined;
-
-    if (metadataPlan === "pro" || metadataPlan === "free") {
-      console.log(`[Webhook] User metadata plan: ${metadataPlan}`);
-
-      try {
-        const emailAddress = evt.data?.email_addresses?.find(
-          (addr: { id: string }) => addr.id === evt.data?.primary_email_address_id,
-        )?.email_address as string | undefined;
-        const convexResponse = await fetch(`${CONVEX_HTTP_URL}/clerk-webhook`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-webhook-secret": process.env.CONVEX_WEBHOOK_SECRET || "",
-          },
-          body: JSON.stringify({ clerkId: id, plan: metadataPlan, email: emailAddress }),
-        });
-
-        const result = await convexResponse.json();
-        console.log(`[Webhook] Convex update result:`, result);
-      } catch (error) {
-        console.error("[Webhook] Error calling Convex:", error);
-      }
-    }
-  }
-
-  return new Response("Webhook processed", { status: 200 });
+  return new Response("Event ignored", { status: 200 });
 }

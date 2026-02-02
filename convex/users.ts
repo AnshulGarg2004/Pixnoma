@@ -116,3 +116,49 @@ export const updateUserPlan = internalMutation({
     return { success: true, userId: user._id, plan };
   },
 });
+
+// Public mutation for webhook to update user plan (called directly from Next.js API)
+export const updatePlanByIdentifier = mutation({
+  args: {
+    clerkUserId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    plan: v.union(v.literal("free"), v.literal("pro")),
+  },
+  handler: async (ctx, { clerkUserId, email, plan }) => {
+    console.log(`[updatePlanByIdentifier] clerkUserId=${clerkUserId}, email=${email}, plan=${plan}`);
+
+    let user = null;
+
+    // Try to find by clerkId first
+    if (clerkUserId) {
+      user = await ctx.db
+        .query("users")
+        .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkUserId))
+        .unique();
+    }
+
+    // Fallback: find by email
+    if (!user && email) {
+      user = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .unique();
+    }
+
+    if (!user) {
+      console.log(`[updatePlanByIdentifier] User not found`);
+      return { success: false, error: "User not found" };
+    }
+
+    // Update plan and backfill clerkId if needed
+    const updates: { plan: "free" | "pro"; clerkId?: string } = { plan };
+    if (!user.clerkId && clerkUserId) {
+      updates.clerkId = clerkUserId;
+    }
+
+    await ctx.db.patch(user._id, updates);
+    console.log(`[updatePlanByIdentifier] Updated ${user.email} to ${plan}`);
+
+    return { success: true, userId: user._id, plan };
+  },
+});
